@@ -123,21 +123,42 @@ function toggleNameMapping() {
 
 // ── Import Excel ────────────────────────────────────────────────────────────
 async function importExcel(input) {
-  if (!apiUrl) { showStatus('⚙️ Set API URL first', 'err'); return; }
+  // Always read URL from input field directly — don't rely on saved variable
+  const currentUrl = document.getElementById('api-url').value.trim().replace(/\/$/, '');
+  if (!currentUrl) {
+    showStatus('⚙️ Enter and Save the Vercel API URL first!', 'err', 8000);
+    return;
+  }
+  // Sync the variable too
+  apiUrl = currentUrl;
+
   const file = input.files[0];
   if (!file) return;
+
   const fd = new FormData();
   fd.append('file', file);
-  showStatus('⏳ Importing...', 'info');
+  showStatus('⏳ Importing...', 'info', 30000);
+
   try {
-    const r    = await fetch(`${apiUrl}/api/import-excel`, { method: 'POST', body: fd });
+    console.log('[SC Tool] Calling:', `${apiUrl}/api/import-excel`);
+    const r = await fetch(`${apiUrl}/api/import-excel`, { method: 'POST', body: fd });
+    console.log('[SC Tool] Response status:', r.status);
+
+    if (!r.ok) {
+      const text = await r.text();
+      throw new Error(`Server error ${r.status}: ${text.slice(0, 200)}`);
+    }
+
     const data = await r.json();
     if (data.error) throw new Error(data.error);
+
     templates = data.templates || [];
     renderTemplates();
-    showStatus(`✅ ${templates.length} templates loaded!`, 'ok');
+    showStatus(`✅ ${templates.length} templates loaded!`, 'ok', 5000);
+    console.log('[SC Tool] Templates loaded:', templates.length);
   } catch (e) {
-    showStatus(`❌ ${e.message}`, 'err');
+    console.error('[SC Tool] Import error:', e);
+    showStatus(`❌ ${e.message}`, 'err', 10000);
   }
   input.value = '';
 }
@@ -362,13 +383,13 @@ function toggleSection(id) {
 
 // ── Status ──────────────────────────────────────────────────────────────────
 let _st;
-function showStatus(msg, type = 'info') {
+function showStatus(msg, type = 'info', duration = 3000) {
   const bar = document.getElementById('status-bar');
-  bar.textContent = msg;
-  bar.className   = `status-bar ${type}`;
+  bar.textContent   = msg;
+  bar.className     = `status-bar ${type}`;
   bar.style.display = 'block';
   clearTimeout(_st);
-  _st = setTimeout(() => { bar.style.display = 'none'; }, 3000);
+  if (duration > 0) _st = setTimeout(() => { bar.style.display = 'none'; }, duration);
 }
 
 // ── Utils ───────────────────────────────────────────────────────────────────
