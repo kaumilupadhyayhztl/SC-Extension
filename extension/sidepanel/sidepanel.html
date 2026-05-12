@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SC Tool</title>
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+
+<!-- ── HEADER ── -->
+<header class="header">
+  <span class="logo">⚡ SC Tool</span>
+  <button id="picker-btn" class="picker-btn off" onclick="togglePicker()">🔴 Picker: OFF</button>
+</header>
+
+<!-- ── STATUS BAR ── -->
+<div id="status-bar" class="status-bar" style="display:none;"></div>
+
+<!-- ── BACKEND CONFIG ── -->
+<div class="section">
+  <div class="section-hdr" onclick="toggleSection('config')">
+    <span>⚙️ Backend Config</span><span id="config-arrow">▼</span>
+  </div>
+  <div id="config-body" class="section-body">
+    <div class="form-row">
+      <label>Vercel API URL</label>
+      <input id="api-url" type="text" placeholder="https://your-backend.vercel.app" />
+    </div>
+    <button class="btn-sm btn-primary" onclick="saveConfig()">💾 Save</button>
+  </div>
+</div>
+
+<!-- ── IMPORT / EXPORT ── -->
+<div class="action-bar">
+  <label class="btn-sm btn-purple" style="cursor:pointer;">
+    📥 Import Excel
+    <input type="file" id="excel-input" accept=".xlsx,.xls" style="display:none;"
+           onchange="importExcel(this)" />
+  </label>
+  <button class="btn-sm btn-green" onclick="exportExcel()">📤 Export Excel</button>
+</div>
+
+<!-- ── TEMPLATES ── -->
+<div class="section">
+  <div class="section-hdr" onclick="toggleSection('templates')">
+    <span>● Templates <span id="tpl-count" class="badge" style="display:none;"></span></span>
+    <span id="templates-arrow">▼</span>
+  </div>
+  <div id="templates-body" class="section-body">
+    <input type="text" id="tpl-search" placeholder="🔍 Search templates..."
+           oninput="filterTpl(this.value)" />
+    <div id="tpl-list" class="tpl-list">
+      <div class="empty-msg">📥 Import Excel to load templates</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── PAGE STRUCTURE ── -->
+<div class="section">
+  <div class="section-hdr" onclick="toggleSection('structure')">
+    <span>▲ Page Structure <span id="struct-count" class="badge" style="display:none;"></span></span>
+    <span id="structure-arrow">▼</span>
+  </div>
+  <div id="structure-body" class="section-body">
+    <div id="struct-tree" class="struct-tree">
+      <div class="empty-msg">Select a template above and add items here.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── ITEM DETAILS ── -->
+<div class="section" id="item-section" style="display:none;">
+  <div class="section-hdr" onclick="toggleSection('item')">
+    <span>● Item — <span id="item-tpl-lbl" style="color:#E8A020;"></span></span>
+    <span id="item-arrow">▼</span>
+  </div>
+  <div id="item-body" class="section-body">
+
+    <!-- Name -->
+    <div class="form-row">
+      <label>Item Name *</label>
+      <div class="input-row">
+        <input id="item-name" type="text" placeholder="e.g. Home, Banner-1..." />
+        <button id="name-map-btn" class="map-btn" onclick="toggleNameMapping()" title="Pick name from page">📌</button>
+      </div>
+      <div id="name-map-hint" class="hint orange" style="display:none;">⚡ Click any element on the page</div>
+    </div>
+
+    <!-- Is Page -->
+    <div class="form-row">
+      <label>Is Page?</label>
+      <div class="toggle-row">
+        <button class="tog yes-on" id="tog-yes" onclick="setIsPage(true)">✅ Yes — Page</button>
+        <button class="tog"        id="tog-no"  onclick="setIsPage(false)">🗂 No — Datasource</button>
+      </div>
+      <div id="ispage-hint" class="hint blue">📄 Creates a page in Sitecore</div>
+    </div>
+
+    <!-- Parent -->
+    <div class="form-row" id="parent-row">
+      <label>Parent Page</label>
+      <select id="parent-sel"></select>
+    </div>
+
+    <!-- Fields -->
+    <div id="fields-wrap">
+      <div class="fields-hdr">
+        <span>Fields — <span id="field-count">0 / 0</span></span>
+        <span id="field-pct" style="color:#E8A020;font-weight:700;">0%</span>
+      </div>
+      <div class="progress-bar"><div id="progress-fill" class="progress-fill" style="width:0%"></div></div>
+      <div id="fields-list" style="margin-top:6px;"></div>
+      <button class="btn-primary full-btn" style="margin-top:8px;" onclick="saveFields()">💾 Save Fields</button>
+    </div>
+
+    <button class="btn-dark full-btn" style="margin-top:8px;" onclick="addToStructure()">+ Add to Structure</button>
+  </div>
+</div>
+
+<!-- ── SELECTED ELEMENT PANEL (sticky bottom) ── -->
+<div id="selected-panel" class="selected-panel" style="display:none;">
+  <div class="selected-hdr">🟠 Selected from page</div>
+  <div id="selected-tag"  class="selected-tag"></div>
+  <div id="selected-info" class="selected-info"></div>
+  <div class="map-row">
+    <select id="map-field-sel">
+      <option value="">— map to field —</option>
+    </select>
+    <button class="btn-orange btn-sm" onclick="mapSelectedToField()">Map ✓</button>
+    <button class="btn-sm" style="background:#eee;" onclick="closeSelectedPanel()">✕</button>
+  </div>
+</div>
+
+<script src="sidepanel.js"></script>
+</body>
+</html>

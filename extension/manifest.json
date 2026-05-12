@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "SC Tool — Content Mapper",
+  "version": "1.0.0",
+  "description": "Pick elements from any live page and map them to Sitecore fields",
+  "permissions": ["activeTab", "scripting", "sidePanel", "storage", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "side_panel": {
+    "default_path": "sidepanel/sidepanel.html"
+  },
+  "action": {
+    "default_title": "Open SC Tool"
+  }
+}
