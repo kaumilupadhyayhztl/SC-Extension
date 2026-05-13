@@ -43,6 +43,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('sc-platform').value  = s.platform  || 'xmcloud';
     document.getElementById('sc-cm-url').value    = s.cmUrl     || '';
     document.getElementById('sc-api-key').value   = s.apiKey    || '';
+    document.getElementById('sc-username').value  = s.username  || '';
     document.getElementById('sc-root-path').value = s.rootPath  || '/sitecore/content';
     updateCredFields();
   }
@@ -231,11 +232,21 @@ async function connectSitecore() {
       cfg.token        = tokenData.access_token;
       cfg.tokenExp     = Date.now() + tokenData.expires_in * 1000;
 
-    // ── Traditional: API Key ──
+    // ── Traditional: Username + Password (+ optional API Key) ──
     } else {
-      const apiKey = document.getElementById('sc-api-key').value.trim();
-      if (!apiKey) throw new Error('Enter the Sitecore API Key');
-      cfg.apiKey = apiKey;
+      const username = document.getElementById('sc-username').value.trim();
+      const password = document.getElementById('sc-password').value;
+      const apiKey   = document.getElementById('sc-api-key').value.trim();
+
+      if (!username || !password) throw new Error('Enter Sitecore Username and Password');
+
+      cfg.username = username;
+      cfg.password = password;
+      if (apiKey) cfg.apiKey = apiKey;
+
+      // Log in to Sitecore — this sets the auth cookie for all subsequent requests
+      showStatus('🔄 Logging in to Sitecore…', 'info', 30000);
+      await sscLogin(cfg);
     }
 
     // ── Detect GraphQL vs SSC ──
@@ -245,8 +256,12 @@ async function connectSitecore() {
     scConfig   = cfg;
     isLiveMode = true;
 
-    // Save non-sensitive settings
-    await chrome.storage.local.set({ scSavedConfig: { platform, cmUrl, apiKey: cfg.apiKey || '', rootPath } });
+    // Save non-sensitive settings (no password)
+    await chrome.storage.local.set({ scSavedConfig: {
+      platform, cmUrl, rootPath,
+      apiKey:   cfg.apiKey   || '',
+      username: cfg.username || ''
+    }});
 
     setConnDot('on');
     showConnectedUi();
@@ -258,6 +273,41 @@ async function connectSitecore() {
     setConnDot('off');
     showStatus(`❌ ${e.message}`, 'err', 10000);
   }
+}
+
+// ── SSC Login (Traditional) ────────────────────────────────────
+async function sscLogin(cfg) {
+  // Parse "domain\username" or just "username"
+  let domain = 'sitecore', username = cfg.username;
+  if (cfg.username.includes('\\')) {
+    [domain, username] = cfg.username.split('\\');
+  }
+
+  const res = await fetch(`${cfg.cmUrl}/sitecore/api/ssc/auth/login`, {
+    method:      'POST',
+    credentials: 'include',   // store the auth cookie
+    headers:     { 'Content-Type': 'application/json' },
+    body:        JSON.stringify({ domain, username, password: cfg.password })
+  });
+
+  const text = await res.text();
+
+  // HTML back = wrong URL or SSC not enabled
+  if (text.trim().startsWith('<')) {
+    throw new Error(
+      'Login endpoint returned HTML. Make sure:\n' +
+      '1. The CM URL is correct\n' +
+      '2. Sitecore Services Client (SSC) module is installed\n' +
+      '3. Try opening the URL in a browser to confirm it loads Sitecore'
+    );
+  }
+
+  if (!res.ok) {
+    throw new Error(`Login failed (${res.status}): ${text.slice(0, 200)}`);
+  }
+
+  // Login succeeded — auth cookie is now stored by the browser
+  console.log('[SC Tool] Sitecore login OK');
 }
 
 async function getXMCloudToken(clientId, clientSecret) {
@@ -379,9 +429,10 @@ async function gqlQuery(query, variables = {}, cfg) {
   const c   = cfg || scConfig;
   const url = buildGqlUrl(c);
   const res = await fetch(url, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders(c) },
-    body:    JSON.stringify({ query, variables })
+    method:      'POST',
+    credentials: 'include',   // send Sitecore auth cookie
+    headers:     { 'Content-Type': 'application/json', ...authHeaders(c) },
+    body:        JSON.stringify({ query, variables })
   });
   if (!res.ok) throw new Error(`GraphQL ${res.status}`);
   return res.json();
@@ -389,7 +440,10 @@ async function gqlQuery(query, variables = {}, cfg) {
 
 async function sscGet(endpoint) {
   const url  = buildSscUrl(null, endpoint);
-  const res  = await fetch(url, { headers: authHeaders() });
+  const res  = await fetch(url, {
+    credentials: 'include',   // send Sitecore auth cookie
+    headers:     authHeaders()
+  });
   const text = await res.text();
 
   // Detect HTML response (login redirect / error page)
@@ -793,37 +847,19 @@ async function createScItem() {
     const parentPath = selectedParentNode.path;
     let newItemId;
 
-    if (scConfig.apiMode === 'ssc') {
-      // SSC create — parentPath as query param
-      const url = buildSscUrl(null, `?path=${encodeURIComponent(parentPath)}&database=master`);
-      const res = await fetch(url, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body:    JSON.stringify({ ItemName: name, TemplateID: templateId, Fields: fields })
-      });
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(`Create failed (${res.status}): ${t.slice(0, 200)}`);
-      }
-      const created = await res.json();
-      newItemId = created.ItemID || created.id;
-
-    } else {
-      // GraphQL mutation (XM Cloud Management API style)
-      // Fall back to SSC even in graphql mode for mutations (GraphQL is read-only in many setups)
-      const url = buildSscUrl(null, `?path=${encodeURIComponent(parentPath)}&database=master`);
-      const res = await fetch(url, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body:    JSON.stringify({ ItemName: name, TemplateID: templateId, Fields: fields })
-      });
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(`Create failed (${res.status}): ${t.slice(0, 200)}`);
-      }
-      const created = await res.json();
-      newItemId = created.ItemID || created.id;
-    }
+    // Use SSC for item creation regardless of apiMode (GraphQL is read-only in most setups)
+    const url = buildSscUrl(null, `?path=${encodeURIComponent(parentPath)}&database=master`);
+    const res = await fetch(url, {
+      method:      'POST',
+      credentials: 'include',
+      headers:     { 'Content-Type': 'application/json', ...authHeaders() },
+      body:        JSON.stringify({ ItemName: name, TemplateID: templateId, Fields: fields })
+    });
+    const createText = await res.text();
+    if (createText.trim().startsWith('<')) throw new Error('Session expired — please reconnect');
+    if (!res.ok) throw new Error(`Create failed (${res.status}): ${createText.slice(0, 200)}`);
+    const created = JSON.parse(createText);
+    newItemId = created.ItemID || created.id;
 
     showStatus(`✅ "${name}" created successfully!`, 'ok', 5000);
 
