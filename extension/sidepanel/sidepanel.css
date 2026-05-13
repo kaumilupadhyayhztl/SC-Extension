@@ -33,8 +33,12 @@ body {
   font-weight: 700;
   transition: all .2s;
 }
-.picker-btn.off { background: #3a3a4a; color: #aaa; }
-.picker-btn.on  { background: #E8A020; color: #fff; animation: pulse .9s ease-in-out infinite alternate; }
+.picker-btn.off { background: #1B5FAA; color: #fff; }
+.picker-btn.on  { background: #2e7d32; color: #fff; animation: pulse-green .9s ease-in-out infinite alternate; }
+@keyframes pulse-green {
+  from { box-shadow: 0 0 4px rgba(46,125,50,.4); }
+  to   { box-shadow: 0 0 14px rgba(46,125,50,.9); }
+}
 @keyframes pulse {
   from { box-shadow: 0 0 4px rgba(232,160,32,.4); }
   to   { box-shadow: 0 0 14px rgba(232,160,32,.9); }

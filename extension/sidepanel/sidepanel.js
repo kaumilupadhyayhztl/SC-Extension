@@ -40,10 +40,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('hdr-structure') .addEventListener('click', () => toggleSection('structure'));
   document.getElementById('hdr-item')      .addEventListener('click', () => toggleSection('item'));
 
-  // Receive element picks / state changes from content.js
+  // Receive element picks from content.js + tab-load events from background.js
   chrome.runtime.onMessage.addListener(msg => {
     if (msg.type === 'ELEMENT_SELECTED') handleElementSelected(msg.payload);
-    if (msg.type === 'PICKER_AUTO_OFF')  onPickerAutoOff();
+    if (msg.type === 'TAB_LOADED')       onTabLoaded(msg.tabId);
   });
 });
 
@@ -58,30 +58,28 @@ async function saveConfig() {
 async function togglePicker() {
   const btn = document.getElementById('picker-btn');
 
-  // ── DEACTIVATE ──
+  // ── DISABLE SELECTION ──
   if (pickerActive) {
     pickerActive = false;
     nameMappingMode = false;
     activeFieldId = null;
     resetMapBtns();
-    btn.textContent = '🔴 Picker: OFF';
-    btn.className   = 'picker-btn off';
+    setPickerBtn(false);
 
-    // Send DEACTIVATE to the exact tab we activated — avoids focus-window ambiguity
+    // Send DEACTIVATE to the exact tab we activated
     if (pickerTabId !== null) {
       try {
         await chrome.tabs.sendMessage(pickerTabId, { type: 'DEACTIVATE_PICKER' });
       } catch {
-        // Tab navigated or was closed — content script already gone, nothing to do
-        console.log('[SC Tool] Could not reach tab to deactivate picker (tab may have navigated)');
+        // Tab navigated or closed — content script already gone, fine
       }
       pickerTabId = null;
     }
-    showStatus('🔴 Picker turned off', 'info');
+    showStatus('Selection mode disabled', 'info');
     return;
   }
 
-  // ── ACTIVATE ──
+  // ── ENABLE SELECTION ──
   try {
     const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     const tab  = tabs[0];
@@ -91,42 +89,57 @@ async function togglePicker() {
       throw new Error('Cannot run on browser system pages. Please navigate to a normal website.');
     }
 
-    // Try sending — if content script isn't injected yet, inject it first
-    try {
-      await chrome.tabs.sendMessage(tab.id, { type: 'ACTIVATE_PICKER' });
-    } catch {
-      console.log('[SC Tool] Content script not found, injecting...');
-      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
-      await new Promise(r => setTimeout(r, 200));
-      await chrome.tabs.sendMessage(tab.id, { type: 'ACTIVATE_PICKER' });
-    }
-
+    await activatePickerOnTab(tab.id);
     pickerActive = true;
-    pickerTabId  = tab.id;   // remember which tab has the picker ON
-    btn.textContent = '🟢 Picker: ON';
-    btn.className   = 'picker-btn on';
-    showStatus('⚡ Click any element on the page', 'info');
+    pickerTabId  = tab.id;
+    setPickerBtn(true);
+    showStatus('✅ Selection mode ON — click any element on the page', 'info');
 
   } catch (e) {
-    console.error('[SC Tool] Picker error:', e);
+    console.error('[SC Tool] Selection error:', e);
     showStatus(`❌ ${e.message}`, 'err', 6000);
     pickerActive = false;
     pickerTabId  = null;
-    btn.textContent = '🔴 Picker: OFF';
+    setPickerBtn(false);
+  }
+}
+
+// Inject content script if needed, then send ACTIVATE_PICKER
+async function activatePickerOnTab(tabId) {
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: 'ACTIVATE_PICKER' });
+  } catch {
+    // Content script not present — inject it then retry
+    console.log('[SC Tool] Injecting content script into tab', tabId);
+    await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
+    await new Promise(r => setTimeout(r, 200));
+    await chrome.tabs.sendMessage(tabId, { type: 'ACTIVATE_PICKER' });
+  }
+}
+
+// Update the button appearance
+function setPickerBtn(on) {
+  const btn = document.getElementById('picker-btn');
+  if (on) {
+    btn.textContent = '✅ Selecting… Click to Stop';
+    btn.className   = 'picker-btn on';
+  } else {
+    btn.textContent = '🎯 Enable Selection';
     btn.className   = 'picker-btn off';
   }
 }
 
-// Called when content.js auto-deactivates picker after an element is selected
-function onPickerAutoOff() {
-  pickerActive = false;
-  pickerTabId  = null;
-  nameMappingMode = false;
-  activeFieldId   = null;
-  resetMapBtns();
-  const btn = document.getElementById('picker-btn');
-  btn.textContent = '🔴 Picker: OFF';
-  btn.className   = 'picker-btn off';
+// Called by background.js when a tab finishes loading.
+// If selection mode is ON and it's our picker tab, re-activate on the new page.
+async function onTabLoaded(tabId) {
+  if (!pickerActive || tabId !== pickerTabId) return;
+  try {
+    await new Promise(r => setTimeout(r, 400)); // give page a moment to settle
+    await activatePickerOnTab(tabId);
+    showStatus('✅ Selection mode resumed on new page — click any element', 'info');
+  } catch (e) {
+    console.log('[SC Tool] Could not resume selection after navigation:', e);
+  }
 }
 
 function resetMapBtns() {
