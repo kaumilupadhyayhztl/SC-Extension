@@ -240,6 +240,38 @@ input[type="text"]:focus, select:focus { border-color: #378ADD; background: #fff
 ::-webkit-scrollbar-track { background: #f0f0f0; }
 ::-webkit-scrollbar-thumb { background: #ccc; border-radius: 2px; }
 
+/* ── Login notice (Traditional mode) ── */
+.login-notice {
+  background: #e3f2fd;
+  border: 1px solid #90caf9;
+  border-radius: 7px;
+  padding: 8px 10px;
+  margin-bottom: 9px;
+}
+.login-notice-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 11px;
+  color: #1565c0;
+  line-height: 1.4;
+  margin-bottom: 5px;
+}
+.login-notice-step:last-child { margin-bottom: 0; }
+.login-step-num {
+  flex-shrink: 0;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: #1B5FAA;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+
 /* ── Connection dot ── */
 .conn-dot {
   display: inline-block;

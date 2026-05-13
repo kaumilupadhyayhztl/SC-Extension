@@ -43,7 +43,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('sc-platform').value  = s.platform  || 'xmcloud';
     document.getElementById('sc-cm-url').value    = s.cmUrl     || '';
     document.getElementById('sc-api-key').value   = s.apiKey    || '';
-    document.getElementById('sc-username').value  = s.username  || '';
     document.getElementById('sc-root-path').value = s.rootPath  || '/sitecore/content';
     updateCredFields();
   }
@@ -232,21 +231,20 @@ async function connectSitecore() {
       cfg.token        = tokenData.access_token;
       cfg.tokenExp     = Date.now() + tokenData.expires_in * 1000;
 
-    // ── Traditional: Username + Password (+ optional API Key) ──
+    // ── Traditional: use the browser's active Sitecore session ──
     } else {
-      const username = document.getElementById('sc-username').value.trim();
-      const password = document.getElementById('sc-password').value;
-      const apiKey   = document.getElementById('sc-api-key').value.trim();
-
-      if (!username || !password) throw new Error('Enter Sitecore Username and Password');
-
-      cfg.username = username;
-      cfg.password = password;
+      const apiKey = document.getElementById('sc-api-key').value.trim();
       if (apiKey) cfg.apiKey = apiKey;
 
-      // Log in to Sitecore — this sets the auth cookie for all subsequent requests
-      showStatus('🔄 Logging in to Sitecore…', 'info', 30000);
-      await sscLogin(cfg);
+      // Verify the user is already logged in by checking for the Sitecore auth cookie
+      showStatus('🔄 Checking Sitecore session…', 'info', 10000);
+      const hasCookie = await checkSitecoreSession(cmUrl);
+      if (!hasCookie) {
+        throw new Error(
+          'No active Sitecore session found.\n' +
+          'Please open ' + cmUrl + '/sitecore in your browser, log in, then click Connect again.'
+        );
+      }
     }
 
     // ── Detect GraphQL vs SSC ──
@@ -275,39 +273,22 @@ async function connectSitecore() {
   }
 }
 
-// ── SSC Login (Traditional) ────────────────────────────────────
-async function sscLogin(cfg) {
-  // Parse "domain\username" or just "username"
-  let domain = 'sitecore', username = cfg.username;
-  if (cfg.username.includes('\\')) {
-    [domain, username] = cfg.username.split('\\');
+// ── Check Sitecore Session (Traditional) ───────────────────────
+// Looks for Sitecore auth cookies in the browser's cookie store.
+// The user must have logged in via their browser first.
+async function checkSitecoreSession(cmUrl) {
+  // Sitecore sets these cookies on login
+  const cookieNames = ['.ASPXAUTH', 'sitecore_userticket', 'SC_ANALYTICS_GLOBAL_COOKIE'];
+  for (const name of cookieNames) {
+    try {
+      const cookie = await chrome.cookies.get({ url: cmUrl, name });
+      if (cookie) {
+        console.log('[SC Tool] Found Sitecore session cookie:', name);
+        return true;
+      }
+    } catch {}
   }
-
-  const res = await fetch(`${cfg.cmUrl}/sitecore/api/ssc/auth/login`, {
-    method:      'POST',
-    credentials: 'include',   // store the auth cookie
-    headers:     { 'Content-Type': 'application/json' },
-    body:        JSON.stringify({ domain, username, password: cfg.password })
-  });
-
-  const text = await res.text();
-
-  // HTML back = wrong URL or SSC not enabled
-  if (text.trim().startsWith('<')) {
-    throw new Error(
-      'Login endpoint returned HTML. Make sure:\n' +
-      '1. The CM URL is correct\n' +
-      '2. Sitecore Services Client (SSC) module is installed\n' +
-      '3. Try opening the URL in a browser to confirm it loads Sitecore'
-    );
-  }
-
-  if (!res.ok) {
-    throw new Error(`Login failed (${res.status}): ${text.slice(0, 200)}`);
-  }
-
-  // Login succeeded — auth cookie is now stored by the browser
-  console.log('[SC Tool] Sitecore login OK');
+  return false;
 }
 
 async function getXMCloudToken(clientId, clientSecret) {

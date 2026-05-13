@@ -3,7 +3,7 @@
   "name": "SC Tool — Content Mapper",
   "version": "1.0.0",
   "description": "Pick elements from any live page and map them to Sitecore fields",
-  "permissions": ["activeTab", "scripting", "sidePanel", "storage", "tabs"],
+  "permissions": ["activeTab", "scripting", "sidePanel", "storage", "tabs", "cookies"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"

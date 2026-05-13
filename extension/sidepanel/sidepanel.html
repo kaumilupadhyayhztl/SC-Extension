@@ -54,16 +54,18 @@
 
     <!-- Traditional credentials -->
     <div id="traditional-creds" style="display:none;">
-      <div class="form-row">
-        <label>Username</label>
-        <input id="sc-username" type="text" placeholder="sitecore\admin" />
+      <div class="login-notice">
+        <div class="login-notice-step">
+          <span class="login-step-num">1</span>
+          Open your CM URL in the browser and <strong>log in to Sitecore</strong>
+        </div>
+        <div class="login-notice-step">
+          <span class="login-step-num">2</span>
+          Come back here and click <strong>Connect</strong> — the extension will use your active session
+        </div>
       </div>
       <div class="form-row">
-        <label>Password</label>
-        <input id="sc-password" type="password" placeholder="••••••••" />
-      </div>
-      <div class="form-row">
-        <label>API Key <span style="font-weight:400;color:#aaa;">(optional)</span></label>
+        <label>API Key <span style="font-weight:400;color:#aaa;">(from Sitecore → System → API Keys)</span></label>
         <input id="sc-api-key" type="text" placeholder="{YOUR-API-KEY-GUID}" />
       </div>
     </div>
