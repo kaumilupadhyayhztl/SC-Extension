@@ -17,30 +17,104 @@
 <!-- ── STATUS BAR ── -->
 <div id="status-bar" class="status-bar" style="display:none;"></div>
 
-<!-- ── IMPORT / EXPORT ── -->
-<div class="action-bar">
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- ── SITECORE CONNECTION ─────────────────────────────── -->
+<!-- ══════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-hdr" id="hdr-connection">
+    <span>🔌 Sitecore Connection <span id="conn-dot" class="conn-dot off"></span></span>
+    <span id="connection-arrow">▼</span>
+  </div>
+  <div id="connection-body" class="section-body">
+
+    <div class="form-row">
+      <label>Platform</label>
+      <select id="sc-platform">
+        <option value="xmcloud">XM Cloud</option>
+        <option value="traditional">XM / XP Traditional</option>
+      </select>
+    </div>
+
+    <div class="form-row">
+      <label>CM Instance URL</label>
+      <input id="sc-cm-url" type="text" placeholder="https://your-cm.sitecorecloud.io" />
+    </div>
+
+    <!-- XM Cloud credentials -->
+    <div id="xmcloud-creds">
+      <div class="form-row">
+        <label>Client ID</label>
+        <input id="sc-client-id" type="text" placeholder="Enter Client ID" />
+      </div>
+      <div class="form-row">
+        <label>Client Secret</label>
+        <input id="sc-client-secret" type="password" placeholder="Enter Client Secret" />
+      </div>
+    </div>
+
+    <!-- Traditional credentials -->
+    <div id="traditional-creds" style="display:none;">
+      <div class="form-row">
+        <label>API Key</label>
+        <input id="sc-api-key" type="text" placeholder="{YOUR-API-KEY-GUID}" />
+      </div>
+    </div>
+
+    <div class="form-row">
+      <label>Content Root Path</label>
+      <input id="sc-root-path" type="text" value="/sitecore/content" />
+    </div>
+
+    <button id="sc-connect-btn" class="btn-primary full-btn">🔗 Connect to Sitecore</button>
+    <button id="sc-disconnect-btn" class="btn-sm btn-dark full-btn" style="display:none; margin-top:5px;">⏏ Disconnect</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- ── CONTENT TREE (shown when connected) ─────────────── -->
+<!-- ══════════════════════════════════════════════════════ -->
+<div class="section" id="tree-section" style="display:none;">
+  <div class="section-hdr" id="hdr-tree">
+    <span>🌳 Content Tree</span>
+    <span id="tree-arrow">▼</span>
+  </div>
+  <div id="tree-body" class="section-body" style="padding:6px 8px 10px;">
+    <div class="tree-toolbar">
+      <input type="text" id="tree-search" placeholder="🔍 Filter tree…" />
+      <button id="tree-refresh-btn" class="btn-sm btn-dark" title="Refresh tree">🔄</button>
+    </div>
+    <div id="tree-container" class="tree-container">
+      <div class="empty-msg">Loading tree…</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- ── OFFLINE: IMPORT EXCEL ───────────────────────────── -->
+<!-- ══════════════════════════════════════════════════════ -->
+<div id="offline-bar" class="action-bar">
   <label class="btn-sm btn-purple" style="cursor:pointer;">
-    📥 Import Excel
+    📥 Import Excel <span style="font-size:9px;opacity:.7;">(offline)</span>
     <input type="file" id="excel-input" accept=".xlsx,.xls" style="display:none;" />
   </label>
 </div>
 
-<!-- ── TEMPLATES ── -->
-<div class="section">
+<!-- ── TEMPLATES (offline / Excel fallback) ── -->
+<div class="section" id="templates-section">
   <div class="section-hdr" id="hdr-templates">
     <span>● Templates <span id="tpl-count" class="badge" style="display:none;"></span></span>
     <span id="templates-arrow">▼</span>
   </div>
   <div id="templates-body" class="section-body">
-    <input type="text" id="tpl-search" placeholder="🔍 Search templates..." />
+    <input type="text" id="tpl-search" placeholder="🔍 Search templates…" />
     <div id="tpl-list" class="tpl-list">
       <div class="empty-msg">📥 Import Excel to load templates</div>
     </div>
   </div>
 </div>
 
-<!-- ── PAGE STRUCTURE ── -->
-<div class="section">
+<!-- ── PAGE STRUCTURE (offline) ── -->
+<div class="section" id="structure-section">
   <div class="section-hdr" id="hdr-structure">
     <span>▲ Page Structure <span id="struct-count" class="badge" style="display:none;"></span></span>
     <span id="structure-arrow">▼</span>
@@ -53,19 +127,34 @@
   </div>
 </div>
 
-<!-- ── ITEM DETAILS ── -->
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- ── ITEM DETAILS (shared: live + offline) ───────────── -->
+<!-- ══════════════════════════════════════════════════════ -->
 <div class="section" id="item-section" style="display:none;">
   <div class="section-hdr" id="hdr-item">
-    <span>● Item — <span id="item-tpl-lbl" style="color:#E8A020;"></span></span>
+    <span>✏️ Item — <span id="item-tpl-lbl" style="color:#E8A020;"></span></span>
     <span id="item-arrow">▼</span>
   </div>
   <div id="item-body" class="section-body">
+
+    <!-- Creating-under label (live mode only) -->
+    <div id="create-under-row" style="display:none;" class="create-under">
+      📍 Under: <span id="create-under-path"></span>
+    </div>
+
+    <!-- Template picker (live mode: from Sitecore; offline: from Excel) -->
+    <div class="form-row" id="tpl-picker-row" style="display:none;">
+      <label>Template</label>
+      <select id="item-tpl-sel">
+        <option value="">— select template —</option>
+      </select>
+    </div>
 
     <!-- Name -->
     <div class="form-row">
       <label>Item Name *</label>
       <div class="input-row">
-        <input id="item-name" type="text" placeholder="e.g. Home, Banner-1..." />
+        <input id="item-name" type="text" placeholder="e.g. Home, Banner-1…" />
         <button id="name-map-btn" class="map-btn" title="Pick name from page">📌</button>
       </div>
       <div id="name-map-hint" class="hint orange" style="display:none;">⚡ Click any element on the page</div>
@@ -81,7 +170,7 @@
       <div id="ispage-hint" class="hint blue">📄 Creates a page in Sitecore</div>
     </div>
 
-    <!-- Parent page — shown for Datasource only -->
+    <!-- Parent page (offline mode / datasource) -->
     <div class="form-row" id="parent-row" style="display:none;">
       <label>Parent Page</label>
       <select id="parent-sel"></select>
@@ -98,7 +187,11 @@
       <button id="save-fields-btn" class="btn-primary full-btn" style="margin-top:8px;">💾 Save Fields</button>
     </div>
 
-    <button id="add-structure-btn" class="btn-dark full-btn" style="margin-top:8px;">+ Add to Structure</button>
+    <!-- Action buttons -->
+    <div style="display:flex; gap:6px; margin-top:8px;">
+      <button id="create-sc-btn"     class="btn-green  btn-sm" style="flex:1; display:none;">🚀 Create in Sitecore</button>
+      <button id="add-structure-btn" class="btn-dark   btn-sm" style="flex:1;">+ Add to Structure</button>
+    </div>
   </div>
 </div>
 
@@ -106,7 +199,7 @@
 <div id="selected-panel" class="selected-panel" style="display:none;">
   <div class="selected-hdr">🟠 Selected from page</div>
   <div id="selected-tag" class="selected-tag"></div>
-  <textarea id="selected-info" class="selected-info" rows="2" placeholder="Captured content..."></textarea>
+  <textarea id="selected-info" class="selected-info" rows="2" placeholder="Captured content…"></textarea>
   <div class="map-row">
     <select id="map-field-sel">
       <option value="">— map to field —</option>
