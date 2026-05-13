@@ -280,17 +280,31 @@ async function getXMCloudToken(clientId, clientSecret) {
 
 // Returns 'graphql' or 'ssc' depending on what the instance supports
 async function detectApiMode(cfg) {
+  // 1 — Try GraphQL
   try {
     const result = await gqlQuery('{ item(path: "/sitecore/content", language: "en") { id } }', {}, cfg);
     if (result.data?.item?.id) return 'graphql';
   } catch {}
-  // Try SSC
+
+  // 2 — Try SSC (verify the response is actual JSON, not an HTML login page)
   try {
     const url = buildSscUrl(cfg, `-/item/v1?path=/sitecore/content&database=master`);
-    const res  = await fetch(url, { headers: authHeaders(cfg) });
-    if (res.ok) return 'ssc';
-  } catch {}
-  throw new Error('Cannot reach Sitecore. Check URL and credentials, and ensure CORS allows extension requests.');
+    const res  = await fetch(url, { headers: { ...authHeaders(cfg), 'SC_APIKEY': cfg.apiKey || '' } });
+    if (res.ok) {
+      const ct   = res.headers.get('content-type') || '';
+      const text = await res.text();
+      if (ct.includes('json') || (text.trim().startsWith('{') || text.trim().startsWith('['))) {
+        return 'ssc';
+      }
+      // Got HTML back — API key likely wrong or SSC not configured
+      throw new Error('Sitecore returned an HTML page instead of JSON. Check that your API Key is correct and the Sitecore Services Client (SSC) is enabled on the CM instance.');
+    }
+    throw new Error(`Sitecore returned HTTP ${res.status}. Check URL and API Key.`);
+  } catch (e) {
+    if (e.message.includes('HTML') || e.message.includes('HTTP')) throw e;
+  }
+
+  throw new Error('Cannot reach Sitecore. Verify the CM URL, API Key, and that the instance is running.');
 }
 
 function disconnectSitecore() {
@@ -340,14 +354,18 @@ function showDisconnectedUi() {
 function authHeaders(cfg) {
   const c = cfg || scConfig;
   if (!c) return {};
-  if (c.platform === 'xmcloud' && c.token) return { 'Authorization': `Bearer ${c.token}` };
-  return {};
+  const h = {};
+  if (c.platform === 'xmcloud' && c.token) h['Authorization'] = `Bearer ${c.token}`;
+  // Pass API key both as header and query param — some Sitecore versions prefer header
+  if (c.apiKey) h['SC_APIKEY'] = c.apiKey;
+  return h;
 }
 
 function buildSscUrl(cfg, endpoint) {
-  const c   = cfg || scConfig;
-  const key = c.apiKey ? `?sc_apikey=${c.apiKey}` : '';
-  // endpoint starts with the part after /sitecore/api/ssc/item/
+  const c      = cfg || scConfig;
+  // Strip curly braces from API key GUID — some Sitecore versions reject them in the URL
+  const rawKey = (c.apiKey || '').replace(/[{}]/g, '');
+  const key    = rawKey ? `?sc_apikey=${rawKey}` : '';
   return `${c.cmUrl}/sitecore/api/ssc/item/${endpoint}${endpoint.includes('?') && key ? '&' + key.slice(1) : key}`;
 }
 
@@ -370,10 +388,25 @@ async function gqlQuery(query, variables = {}, cfg) {
 }
 
 async function sscGet(endpoint) {
-  const url = buildSscUrl(null, endpoint);
-  const res = await fetch(url, { headers: authHeaders() });
-  if (!res.ok) throw new Error(`SSC ${res.status}: ${await res.text().then(t => t.slice(0,150))}`);
-  return res.json();
+  const url  = buildSscUrl(null, endpoint);
+  const res  = await fetch(url, { headers: authHeaders() });
+  const text = await res.text();
+
+  // Detect HTML response (login redirect / error page)
+  if (text.trim().startsWith('<')) {
+    if (!res.ok || res.status === 302 || text.toLowerCase().includes('login')) {
+      throw new Error('Sitecore returned a login/HTML page. Verify your API Key is correct and the Sitecore Services Client is enabled.');
+    }
+    throw new Error('Sitecore returned HTML instead of JSON. Check CM URL and API Key.');
+  }
+
+  if (!res.ok) throw new Error(`Sitecore SSC error ${res.status}: ${text.slice(0, 200)}`);
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`Unexpected response from Sitecore: ${text.slice(0, 100)}`);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -461,12 +494,15 @@ function normaliseGqlNode(n) {
 }
 
 async function fetchRootSsc(path) {
-  const data = await sscGet(`-/item/v1?path=${encodeURIComponent(path)}&database=master`);
+  // Do NOT percent-encode slashes — Sitecore expects them as-is in the path param
+  const data = await sscGet(`-/item/v1?path=${path}&database=master`);
   return normaliseSscNode(data);
 }
 
 async function fetchChildrenSsc(parentId) {
-  const data = await sscGet(`${parentId}/children?database=master`);
+  // Strip curly braces from GUID if present (some Sitecore versions don't accept them in URL)
+  const id   = parentId.replace(/[{}]/g, '');
+  const data = await sscGet(`${id}/children?database=master`);
   return Array.isArray(data) ? data.map(normaliseSscNode) : [];
 }
 
