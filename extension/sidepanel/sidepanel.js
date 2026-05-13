@@ -56,16 +56,42 @@ async function saveConfig() {
 async function togglePicker() {
   pickerActive = !pickerActive;
   const btn = document.getElementById('picker-btn');
+
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    await chrome.tabs.sendMessage(tab.id, {
-      type: pickerActive ? 'ACTIVATE_PICKER' : 'DEACTIVATE_PICKER'
-    });
+    // lastFocusedWindow is more reliable than currentWindow from a side panel
+    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    const tab  = tabs[0];
+
+    if (!tab || !tab.id) throw new Error('No active tab found');
+    if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://') || tab.url.startsWith('edge://')) {
+      throw new Error('Cannot run on browser system pages. Please navigate to a normal website.');
+    }
+
+    // Try sending message — if content script isn't injected yet, inject it first
+    try {
+      await chrome.tabs.sendMessage(tab.id, {
+        type: pickerActive ? 'ACTIVATE_PICKER' : 'DEACTIVATE_PICKER'
+      });
+    } catch {
+      // Content script not loaded (page was open before extension install/reload)
+      // Inject it programmatically
+      console.log('[SC Tool] Content script not found, injecting...');
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
+      // Small delay then retry
+      await new Promise(r => setTimeout(r, 200));
+      await chrome.tabs.sendMessage(tab.id, {
+        type: pickerActive ? 'ACTIVATE_PICKER' : 'DEACTIVATE_PICKER'
+      });
+    }
+
     btn.textContent = pickerActive ? '🟢 Picker: ON' : '🔴 Picker: OFF';
-    btn.className   = pickerActive ? 'picker-btn on'  : 'picker-btn off';
+    btn.className   = pickerActive ? 'picker-btn on' : 'picker-btn off';
     if (!pickerActive) { nameMappingMode = false; activeFieldId = null; resetMapBtns(); }
-  } catch {
-    showStatus('❌ Cannot inject into this page', 'err');
+    showStatus(pickerActive ? '⚡ Click any element on the page' : '🔴 Picker turned off', 'info');
+
+  } catch (e) {
+    console.error('[SC Tool] Picker error:', e);
+    showStatus(`❌ ${e.message}`, 'err', 6000);
     pickerActive = false;
     btn.textContent = '🔴 Picker: OFF';
     btn.className   = 'picker-btn off';
