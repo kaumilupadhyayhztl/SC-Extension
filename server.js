@@ -29,6 +29,19 @@ const app = express();
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
+// ── Health check ─────────────────────────────────────────────────────────
+app.get('/', (req, res) => {
+  res.json({
+    status: '✅ SC Tool Extension Backend is running',
+    endpoints: [
+      'POST /api/import-excel',
+      'POST /api/export-excel',
+      'PATCH /api/update-item',
+      'POST /api/create-item'
+    ]
+  });
+});
+
 // ── Helper ────────────────────────────────────────────────────────────────
 function withApiKey(url) {
   if (!config.apiKey) return url;
