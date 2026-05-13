@@ -459,7 +459,12 @@ async function loadTree(rootPath) {
     }
     if (!root) throw new Error('Root path not found: ' + rootPath);
 
-    root.depth = 0; root.expanded = false; root.childrenIds = null;
+    // Always treat root as having children — SSC single-item response
+    // often omits HasChildren, causing the expand to be skipped
+    root.hasChildren  = true;
+    root.depth        = 0;
+    root.expanded     = false;
+    root.childrenIds  = null;
     treeMap.set(root.id, root);
     treeRootId = root.id;
 
@@ -480,10 +485,12 @@ async function refreshTree() {
 
 async function expandTreeNode(nodeId) {
   const node = treeMap.get(nodeId);
-  if (!node || !node.hasChildren) return;
+  if (!node) return;
+  // Don't skip if hasChildren is false — SSC often omits this field.
+  // We try to fetch anyway; if empty we'll mark the node as a leaf.
   if (node.childrenIds !== null) { node.expanded = true; return; } // already loaded
 
-  node.expanded = true;
+  node.expanded    = true;
   node.childrenIds = [];
 
   try {
@@ -495,16 +502,23 @@ async function expandTreeNode(nodeId) {
     }
 
     children.forEach(c => {
-      c.depth = node.depth + 1;
-      c.expanded = false;
+      c.depth      = node.depth + 1;
+      c.expanded   = false;
       c.childrenIds = null;
-      c.parentId = node.id;
+      c.parentId   = node.id;
       treeMap.set(c.id, c);
       node.childrenIds.push(c.id);
     });
 
+    // If no children came back, mark node as a leaf so arrow disappears
+    if (node.childrenIds.length === 0) {
+      node.hasChildren = false;
+      node.expanded    = false;
+    }
+
   } catch (e) {
     node.childrenIds = null;
+    node.expanded    = false;
     console.error('[SC Tool] Tree expand error:', e);
     showStatus('⚠️ Could not load children: ' + e.message, 'err', 5000);
   }
@@ -542,13 +556,17 @@ async function fetchChildrenSsc(parentId) {
 }
 
 function normaliseSscNode(n) {
+  // HasChildren is often missing from SSC responses — default to true (optimistic).
+  // If a node truly has no children, expandTreeNode() will set hasChildren=false
+  // after a failed fetch, and the expand arrow will disappear.
+  const hasChildrenRaw = n.HasChildren ?? n.hasChildren;
   return {
     id:           n.ItemID   || n.id || '',
     name:         n.ItemName || n.DisplayName || n.name || '',
     path:         n.ItemPath || n.path || '',
     templateId:   n.TemplateID   || n.templateId   || '',
     templateName: n.TemplateName || n.templateName || '',
-    hasChildren:  !!(n.HasChildren ?? n.hasChildren)
+    hasChildren:  hasChildrenRaw === undefined ? true : !!hasChildrenRaw
   };
 }
 
