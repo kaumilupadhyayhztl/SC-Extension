@@ -12,11 +12,32 @@ let lastSelected = null;
 
 // ── Init ───────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
+  // Load saved API URL
   const result = await chrome.storage.sync.get(['apiUrl']);
   if (result.apiUrl) {
     apiUrl = result.apiUrl;
     document.getElementById('api-url').value = apiUrl;
   }
+
+  // ── Wire all event listeners (MV3 forbids inline onclick/onchange) ──
+  document.getElementById('picker-btn')        .addEventListener('click',  togglePicker);
+  document.getElementById('save-config-btn')   .addEventListener('click',  saveConfig);
+  document.getElementById('excel-input')       .addEventListener('change', e => importExcel(e.target));
+  document.getElementById('export-btn')        .addEventListener('click',  exportExcel);
+  document.getElementById('tpl-search')        .addEventListener('input',  e => filterTpl(e.target.value));
+  document.getElementById('name-map-btn')      .addEventListener('click',  toggleNameMapping);
+  document.getElementById('tog-yes')           .addEventListener('click',  () => setIsPage(true));
+  document.getElementById('tog-no')            .addEventListener('click',  () => setIsPage(false));
+  document.getElementById('save-fields-btn')   .addEventListener('click',  saveFields);
+  document.getElementById('add-structure-btn') .addEventListener('click',  addToStructure);
+  document.getElementById('map-field-btn')     .addEventListener('click',  mapSelectedToField);
+  document.getElementById('close-selected-btn').addEventListener('click',  closeSelectedPanel);
+
+  // Section collapse toggles
+  document.getElementById('hdr-config')    .addEventListener('click', () => toggleSection('config'));
+  document.getElementById('hdr-templates') .addEventListener('click', () => toggleSection('templates'));
+  document.getElementById('hdr-structure') .addEventListener('click', () => toggleSection('structure'));
+  document.getElementById('hdr-item')      .addEventListener('click', () => toggleSection('item'));
 
   // Receive element picks from content.js
   chrome.runtime.onMessage.addListener(msg => {
@@ -247,13 +268,33 @@ function renderFields() {
     const val = mappings[f.id] || '';
     const div = document.createElement('div');
     div.className = 'field-row' + (val ? ' mapped' : '');
-    div.innerHTML = `
-      <span class="field-name" title="${f.id}">${f.id}</span>
-      <span class="field-type-lbl">${f.type}</span>
-      <input class="field-val" type="text" placeholder="value..." value="${esc(val)}"
-             oninput="mappings['${esc(f.id)}']=this.value;renderFields();" />
-      <button class="field-map-btn ${activeFieldId === f.id ? 'active' : ''}"
-              onclick="setActiveField('${esc(f.id)}',this)" title="Pick from page">📌</button>`;
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'field-name';
+    nameSpan.title = f.id;
+    nameSpan.textContent = f.id;
+
+    const typeSpan = document.createElement('span');
+    typeSpan.className = 'field-type-lbl';
+    typeSpan.textContent = f.type;
+
+    const inp = document.createElement('input');
+    inp.className = 'field-val';
+    inp.type = 'text';
+    inp.placeholder = 'value...';
+    inp.value = val;
+    inp.addEventListener('input', () => { mappings[f.id] = inp.value; renderFields(); });
+
+    const btn = document.createElement('button');
+    btn.className = 'field-map-btn' + (activeFieldId === f.id ? ' active' : '');
+    btn.title = 'Pick from page';
+    btn.textContent = '📌';
+    btn.addEventListener('click', () => setActiveField(f.id, btn));
+
+    div.appendChild(nameSpan);
+    div.appendChild(typeSpan);
+    div.appendChild(inp);
+    div.appendChild(btn);
     list.appendChild(div);
   });
 }
@@ -315,15 +356,31 @@ function renderStructureTree() {
   structureList.forEach((item, i) => {
     const div = document.createElement('div');
     div.className = 'struct-item' + (currentItem?._idx === i ? ' active' : '');
-    div.innerHTML = `
-      <div style="min-width:0;">
-        <div class="si-name">${item.isPage ? '📄' : '🗂'} ${item.name}</div>
-        <div class="si-tpl">${item.template}</div>
-      </div>
-      <div class="si-actions">
-        <button class="si-btn" onclick="editItem(${i})" title="Edit">✏️</button>
-        <button class="si-btn" onclick="removeItem(${i})" title="Remove">🗑️</button>
-      </div>`;
+
+    const info = document.createElement('div');
+    info.style.minWidth = '0';
+    info.innerHTML = `<div class="si-name">${item.isPage ? '📄' : '🗂'} ${item.name}</div>
+                      <div class="si-tpl">${item.template}</div>`;
+
+    const actions = document.createElement('div');
+    actions.className = 'si-actions';
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'si-btn';
+    editBtn.title = 'Edit';
+    editBtn.textContent = '✏️';
+    editBtn.addEventListener('click', e => { e.stopPropagation(); editItem(i); });
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'si-btn';
+    delBtn.title = 'Remove';
+    delBtn.textContent = '🗑️';
+    delBtn.addEventListener('click', e => { e.stopPropagation(); removeItem(i); });
+
+    actions.appendChild(editBtn);
+    actions.appendChild(delBtn);
+    div.appendChild(info);
+    div.appendChild(actions);
     tree.appendChild(div);
   });
 }
