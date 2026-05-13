@@ -110,8 +110,9 @@ function handleElementSelected(payload) {
 
   // Show sticky selected panel
   document.getElementById('selected-panel').style.display = 'block';
-  document.getElementById('selected-tag').textContent  = `<${payload.tag.toLowerCase()}>`;
-  document.getElementById('selected-info').textContent = content.slice(0, 120) || '(no text)';
+  document.getElementById('selected-tag').textContent = `<${payload.tag.toLowerCase()}>`;
+  // Fix 4: use .value (textarea) so user can edit captured text before mapping
+  document.getElementById('selected-info').value = content || '(no text)';
 
   // Populate field dropdown
   const sel = document.getElementById('map-field-sel');
@@ -147,8 +148,9 @@ function handleElementSelected(payload) {
 
 function mapSelectedToField() {
   const fieldId = document.getElementById('map-field-sel').value;
-  if (!fieldId || !lastSelected) return;
-  const content = lastSelected.text || lastSelected.src || lastSelected.alt || lastSelected.href || '';
+  if (!fieldId) return;
+  // Fix 4: read from the editable textarea (user may have edited it)
+  const content = document.getElementById('selected-info').value || '';
   mappings[fieldId] = content;
   renderFields();
   closeSelectedPanel();
@@ -258,9 +260,10 @@ function showItemSection(tpl) {
 function setIsPage(val) {
   document.getElementById('tog-yes').className = 'tog' + (val  ? ' yes-on' : '');
   document.getElementById('tog-no').className  = 'tog' + (!val ? ' no-on'  : '');
-  document.getElementById('ispage-hint').textContent = val ? '📄 Creates a page in Sitecore' : '🗂 Datasource item';
-  document.getElementById('ispage-hint').className   = 'hint ' + (val ? 'blue' : '');
-  document.getElementById('parent-row').style.display = val ? '' : 'none';
+  document.getElementById('ispage-hint').textContent = val ? '📄 Creates a page in Sitecore' : '🗂 Datasource — select which page it belongs to';
+  document.getElementById('ispage-hint').className   = 'hint ' + (val ? 'blue' : 'orange');
+  // Fix 1: Parent dropdown shows for Datasource (No), hidden for Page (Yes)
+  document.getElementById('parent-row').style.display = !val ? '' : 'none';
   if (!currentItem) currentItem = { isPage: val };
   else currentItem.isPage = val;
 }
@@ -277,19 +280,30 @@ function renderParentSelect() {
   });
 }
 
-// ── Fields ─────────────────────────────────────────────────────────────────
-function renderFields() {
+// ── Fields progress (update counters without re-rendering inputs) ───────────
+function updateFieldProgress() {
   if (!currentTpl) return;
-  const list   = document.getElementById('fields-list');
   const mapped = Object.values(mappings).filter(v => v).length;
   const total  = currentTpl.fields.length;
   const pct    = total ? Math.round(mapped / total * 100) : 0;
-
-  document.getElementById('field-count').textContent = `${mapped} / ${total} fields`;
-  document.getElementById('field-pct').textContent   = pct + '%';
+  document.getElementById('field-count').textContent  = `${mapped} / ${total} fields`;
+  document.getElementById('field-pct').textContent    = pct + '%';
   document.getElementById('progress-fill').style.width = pct + '%';
+  // Update mapped highlight without recreating inputs
+  document.querySelectorAll('#fields-list .field-row').forEach((row, i) => {
+    const f = currentTpl.fields[i];
+    if (f) row.className = 'field-row' + (mappings[f.id] ? ' mapped' : '');
+  });
+}
 
+// ── Fields (full render — only called on template change, not on typing) ────
+function renderFields() {
+  if (!currentTpl) return;
+  const list = document.getElementById('fields-list');
+
+  updateFieldProgress();
   list.innerHTML = '';
+
   currentTpl.fields.forEach(f => {
     const val = mappings[f.id] || '';
     const div = document.createElement('div');
@@ -309,7 +323,9 @@ function renderFields() {
     inp.type = 'text';
     inp.placeholder = 'value...';
     inp.value = val;
-    inp.addEventListener('input', () => { mappings[f.id] = inp.value; renderFields(); });
+    // Fix 3: only update mapping + progress — do NOT call renderFields()
+    // (calling renderFields on input recreates all DOM elements = loses focus)
+    inp.addEventListener('input', () => { mappings[f.id] = inp.value; updateFieldProgress(); });
 
     const btn = document.createElement('button');
     btn.className = 'field-map-btn' + (activeFieldId === f.id ? ' active' : '');

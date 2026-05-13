@@ -31,13 +31,12 @@
   </div>
 </div>
 
-<!-- ── IMPORT / EXPORT ── -->
+<!-- ── IMPORT (Fix 2: Export moved to Page Structure) ── -->
 <div class="action-bar">
   <label class="btn-sm btn-purple" style="cursor:pointer;">
     📥 Import Excel
     <input type="file" id="excel-input" accept=".xlsx,.xls" style="display:none;" />
   </label>
-  <button id="export-btn" class="btn-sm btn-green">📤 Export Excel</button>
 </div>
 
 <!-- ── TEMPLATES ── -->
@@ -54,7 +53,7 @@
   </div>
 </div>
 
-<!-- ── PAGE STRUCTURE ── -->
+<!-- ── PAGE STRUCTURE (Fix 2: Export button lives here now) ── -->
 <div class="section">
   <div class="section-hdr" id="hdr-structure">
     <span>▲ Page Structure <span id="struct-count" class="badge" style="display:none;"></span></span>
@@ -64,6 +63,8 @@
     <div id="struct-tree" class="struct-tree">
       <div class="empty-msg">Select a template above and add items here.</div>
     </div>
+    <!-- Fix 2: Export moved here -->
+    <button id="export-btn" class="btn-green full-btn" style="margin-top:10px;">📤 Export All to Excel</button>
   </div>
 </div>
 
@@ -95,8 +96,8 @@
       <div id="ispage-hint" class="hint blue">📄 Creates a page in Sitecore</div>
     </div>
 
-    <!-- Parent -->
-    <div class="form-row" id="parent-row">
+    <!-- Fix 1: Parent page — now shows for Datasource (No), hidden for Page (Yes) -->
+    <div class="form-row" id="parent-row" style="display:none;">
       <label>Parent Page</label>
       <select id="parent-sel"></select>
     </div>
@@ -119,13 +120,14 @@
 <!-- ── SELECTED ELEMENT PANEL ── -->
 <div id="selected-panel" class="selected-panel" style="display:none;">
   <div class="selected-hdr">🟠 Selected from page</div>
-  <div id="selected-tag"  class="selected-tag"></div>
-  <div id="selected-info" class="selected-info"></div>
+  <div id="selected-tag" class="selected-tag"></div>
+  <!-- Fix 4: textarea so user can edit the captured text before mapping -->
+  <textarea id="selected-info" class="selected-info" rows="2" placeholder="Captured content..."></textarea>
   <div class="map-row">
     <select id="map-field-sel">
       <option value="">— map to field —</option>
     </select>
-    <button id="map-field-btn"    class="btn-orange btn-sm">Map ✓</button>
+    <button id="map-field-btn"      class="btn-orange btn-sm">Map ✓</button>
     <button id="close-selected-btn" class="btn-sm" style="background:#eee;">✕</button>
   </div>
 </div>

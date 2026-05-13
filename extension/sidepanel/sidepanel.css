@@ -218,11 +218,13 @@ input[type="text"]:focus, select:focus { border-color: #378ADD; background: #fff
 .selected-info {
   font-size: 11px; color: #444;
   background: #fff; padding: 4px 8px;
-  border-radius: 5px; border: 1px solid #eee;
-  max-height: 38px; overflow: hidden;
-  text-overflow: ellipsis;
+  border-radius: 5px; border: 1px solid #ddd;
   margin-bottom: 7px;
-  white-space: nowrap;
+  width: 100%;
+  resize: vertical;
+  min-height: 38px;
+  font-family: inherit;
+  line-height: 1.4;
 }
 .map-row { display: flex; gap: 5px; align-items: center; }
 .map-row select { flex: 1; }
