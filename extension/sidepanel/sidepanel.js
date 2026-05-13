@@ -44,6 +44,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('sc-cm-url').value    = s.cmUrl     || '';
     document.getElementById('sc-api-key').value   = s.apiKey    || '';
     document.getElementById('sc-root-path').value = s.rootPath  || '/sitecore/content';
+    document.getElementById('sc-tpl-path').value  = s.tplPath   || '';
     updateCredFields();
   }
 
@@ -255,10 +256,10 @@ async function connectSitecore() {
     isLiveMode = true;
 
     // Save non-sensitive settings (no password)
+    const tplPath = document.getElementById('sc-tpl-path')?.value?.trim() || '';
     await chrome.storage.local.set({ scSavedConfig: {
-      platform, cmUrl, rootPath,
-      apiKey:   cfg.apiKey   || '',
-      username: cfg.username || ''
+      platform, cmUrl, rootPath, tplPath,
+      apiKey: cfg.apiKey || ''
     }});
 
     setConnDot('on');
@@ -593,49 +594,51 @@ function renderTreeNodeEl(node, parent, filterQ) {
   row.style.paddingLeft = (4 + node.depth * 14) + 'px';
   row.dataset.nid = node.id;
 
-  // Toggle
+  // ── Toggle (▶ / ▼) ──
   const tog = document.createElement('span');
   tog.className   = 'tree-toggle';
   tog.textContent = node.hasChildren ? (node.expanded ? '▼' : '▶') : '';
-  if (node.hasChildren) {
-    tog.addEventListener('click', async e => {
-      e.stopPropagation();
-      if (node.expanded) {
-        node.expanded = false;
-      } else {
-        tog.textContent = '…';
-        await expandTreeNode(node.id);
-      }
-      renderTree(document.getElementById('tree-search').value);
-    });
-  }
 
-  // Icon
+  // ── Icon ──
   const icon = document.createElement('span');
   icon.className   = 'tree-icon';
   icon.textContent = getNodeIcon(node.templateName);
 
-  // Name
+  // ── Name ──
   const name = document.createElement('span');
   name.className   = 'tree-name';
   name.textContent = node.name;
   name.title       = node.path;
 
-  // Template
+  // ── Template label ──
   const meta = document.createElement('span');
   meta.className   = 'tree-meta';
   meta.textContent = node.templateName;
 
-  // Add button
+  // ── [+] button — ONLY this opens the create form ──
   const addBtn = document.createElement('button');
   addBtn.className   = 'tree-add';
   addBtn.textContent = '+';
-  addBtn.title       = `Create item under ${node.path}`;
+  addBtn.title       = `Create item under "${node.name}"`;
   addBtn.addEventListener('click', e => { e.stopPropagation(); selectParentNode(node); });
 
   row.appendChild(tog); row.appendChild(icon); row.appendChild(name);
   row.appendChild(meta); row.appendChild(addBtn);
-  row.addEventListener('click', () => selectParentNode(node));
+
+  // ── Row click = expand / collapse (NOT create) ──
+  async function toggleExpand() {
+    if (!node.hasChildren) return;
+    if (node.expanded) {
+      node.expanded = false;
+      renderTree(document.getElementById('tree-search').value);
+    } else {
+      tog.textContent = '⏳';
+      await expandTreeNode(node.id);
+      renderTree(document.getElementById('tree-search').value);
+    }
+  }
+  tog.addEventListener('click',  e => { e.stopPropagation(); toggleExpand(); });
+  row.addEventListener('click',  () => toggleExpand());
   wrap.appendChild(row);
 
   // Render children if expanded
@@ -685,35 +688,59 @@ async function selectParentNode(node) {
 
 // ── Fetch templates from Sitecore ─────────────────────────────
 async function fetchScTemplates() {
+  // Determine template root — prefer user-supplied path, fallback to /sitecore/templates/Project
+  const tplPathInput = document.getElementById('sc-tpl-path')?.value?.trim();
+  const tplRoot = tplPathInput || '/sitecore/templates/Project';
+
+  showStatus(`⏳ Scanning templates under ${tplRoot}…`, 'info', 30000);
   try {
     let fetched = [];
     if (scConfig.apiMode === 'graphql') {
-      fetched = await fetchScTemplatesGql();
+      fetched = await fetchScTemplatesGql(tplRoot);
     } else {
-      fetched = await fetchScTemplatesSsc();
+      fetched = await fetchScTemplatesSsc(tplRoot);
     }
+
+    // Fallback: if nothing found under Project, try full templates folder
+    if (!fetched.length && !tplPathInput) {
+      showStatus('⏳ No templates in /Project — scanning /sitecore/templates…', 'info', 30000);
+      fetched = scConfig.apiMode === 'graphql'
+        ? await fetchScTemplatesGql('/sitecore/templates')
+        : await fetchScTemplatesSsc('/sitecore/templates');
+    }
+
     scTemplates = fetched;
-    showStatus(`✅ ${fetched.length} templates loaded from Sitecore`, 'ok', 3000);
+    if (fetched.length) {
+      showStatus(`✅ ${fetched.length} templates loaded`, 'ok', 3000);
+    } else {
+      showStatus('⚠️ No templates found — enter the Templates Path in the connection form and reconnect, or import Excel templates', 'err', 8000);
+    }
   } catch (e) {
     console.error('[SC Tool] Template fetch error:', e);
-    showStatus('⚠️ Could not load templates — using Excel templates if available', 'err', 5000);
+    showStatus('⚠️ Could not load templates: ' + e.message, 'err', 6000);
   }
 }
 
-async function fetchScTemplatesGql() {
-  // Fetch 2-level deep under /sitecore/templates to find user-defined templates
+// GraphQL: recursive template scan
+async function fetchScTemplatesGql(rootPath) {
   const q = `
-    query {
-      item(path:"/sitecore/templates",language:"en"){
-        children(first:50){
-          results{
-            name
-            children(first:100){
-              results{
-                id name path hasChildren
-                children(first:50){
-                  results{ id name path template{name}
-                    children(first:20){ results{ id name path template{name} } }
+    query($p:String!) {
+      item(path:$p, language:"en") {
+        children(first:100) {
+          results {
+            id name path
+            template { name }
+            children(first:100) {
+              results {
+                id name path
+                template { name }
+                children(first:100) {
+                  results {
+                    id name path
+                    template { name }
+                    children(first:100) {
+                      results { id name path template { name } }
+                    }
                   }
                 }
               }
@@ -723,43 +750,57 @@ async function fetchScTemplatesGql() {
       }
     }
   `;
-  const r = await gqlQuery(q);
-  const templates = [];
-  const sections = r.data?.item?.children?.results || [];
-  sections.forEach(section => {
-    collectTemplateNodes(section.children?.results || [], templates);
-  });
-  return templates;
+  const r = await gqlQuery(q, { p: rootPath });
+  const out = [];
+  collectGqlTemplates(r.data?.item?.children?.results || [], out);
+  return out;
 }
 
-function collectTemplateNodes(nodes, out) {
+function collectGqlTemplates(nodes, out) {
   nodes.forEach(n => {
-    // A template node has no further template-type children (leaf or near-leaf)
     const tplName = (n.template?.name || '').toLowerCase();
-    if (tplName.includes('template') && !tplName.includes('section')) {
+    const isFolder = /folder|bucket|node|branch/.test(tplName) || !n.name;
+    if (!isFolder) {
       out.push({ id: n.id, name: n.name, path: n.path, fields: [] });
-    } else if (n.children?.results?.length) {
-      collectTemplateNodes(n.children.results, out);
+    }
+    // Always recurse into children
+    if (n.children?.results?.length) {
+      collectGqlTemplates(n.children.results, out);
     }
   });
 }
 
-async function fetchScTemplatesSsc() {
-  // Get children of /sitecore/templates recursively (3 levels)
-  const root = await sscGet(`-/item/v1?path=/sitecore/templates&database=master`);
-  const sections = await fetchChildrenSsc(root.ItemID || root.id);
-  const templates = [];
-  for (const sec of sections) {
-    const children = await fetchChildrenSsc(sec.id);
-    for (const c of children) {
-      templates.push({ id: c.id, name: c.name, path: c.path, fields: [] });
-      if (c.hasChildren) {
-        const sub = await fetchChildrenSsc(c.id);
-        sub.forEach(s => templates.push({ id: s.id, name: s.name, path: s.path, fields: [] }));
-      }
-    }
+// SSC: recursive template scan with depth limit
+async function fetchScTemplatesSsc(rootPath) {
+  let rootItem;
+  try {
+    rootItem = await sscGet(`-/item/v1?path=${rootPath}&database=master`);
+  } catch (e) {
+    throw new Error(`Templates root not found (${rootPath}): ${e.message}`);
   }
-  return templates;
+  const out = [];
+  await scanTplRecursive(rootItem.ItemID || rootItem.id, out, 0, 5);
+  return out;
+}
+
+async function scanTplRecursive(itemId, out, depth, maxDepth) {
+  if (depth >= maxDepth) return;
+  let children;
+  try {
+    children = await fetchChildrenSsc(itemId);
+  } catch { return; }
+
+  for (const c of children) {
+    const tplName = (c.templateName || '').toLowerCase();
+    const isFolder = /folder|bucket|node|branch/.test(tplName);
+
+    if (!isFolder && c.name) {
+      // It's a template item — add it
+      out.push({ id: c.id, name: c.name, path: c.path, fields: [] });
+    }
+    // Recurse into sub-folders and sub-templates
+    await scanTplRecursive(c.id, out, depth + 1, maxDepth);
+  }
 }
 
 // All available templates (Sitecore + Excel combined)
