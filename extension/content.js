@@ -54,9 +54,18 @@ document.addEventListener('click', e => {
   if (!pickerActive) return;
   e.preventDefault();
   e.stopPropagation();
+  e.stopImmediatePropagation();
 
   clearAll();
   e.target.classList.add('__sct-selected');
+
+  // Auto-deactivate picker so the page returns to normal immediately
+  pickerActive = false;
+  document.body.style.cursor = '';
+  // Brief delay so the orange outline is visible, then clear it
+  setTimeout(() => {
+    e.target.classList.remove('__sct-selected');
+  }, 800);
 
   // Send captured element data to the side panel
   chrome.runtime.sendMessage({
@@ -69,4 +78,7 @@ document.addEventListener('click', e => {
       href: e.target.href || ''
     }
   });
+
+  // Tell the side panel to sync its picker button to OFF
+  chrome.runtime.sendMessage({ type: 'PICKER_AUTO_OFF' });
 }, true);

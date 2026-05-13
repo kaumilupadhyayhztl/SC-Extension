@@ -5,6 +5,7 @@ let currentTpl    = null;
 let currentItem   = null;   // item being edited  { _idx, name, isPage, ... }
 let mappings      = {};     // fieldId → value
 let pickerActive  = false;
+let pickerTabId   = null;   // tab that has the picker active — used to deactivate reliably
 let nameMappingMode = false;
 let activeFieldId   = null;
 let apiUrl = '';
@@ -39,9 +40,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('hdr-structure') .addEventListener('click', () => toggleSection('structure'));
   document.getElementById('hdr-item')      .addEventListener('click', () => toggleSection('item'));
 
-  // Receive element picks from content.js
+  // Receive element picks / state changes from content.js
   chrome.runtime.onMessage.addListener(msg => {
     if (msg.type === 'ELEMENT_SELECTED') handleElementSelected(msg.payload);
+    if (msg.type === 'PICKER_AUTO_OFF')  onPickerAutoOff();
   });
 });
 
@@ -54,11 +56,33 @@ async function saveConfig() {
 
 // ── Picker toggle ──────────────────────────────────────────────────────────
 async function togglePicker() {
-  pickerActive = !pickerActive;
   const btn = document.getElementById('picker-btn');
 
+  // ── DEACTIVATE ──
+  if (pickerActive) {
+    pickerActive = false;
+    nameMappingMode = false;
+    activeFieldId = null;
+    resetMapBtns();
+    btn.textContent = '🔴 Picker: OFF';
+    btn.className   = 'picker-btn off';
+
+    // Send DEACTIVATE to the exact tab we activated — avoids focus-window ambiguity
+    if (pickerTabId !== null) {
+      try {
+        await chrome.tabs.sendMessage(pickerTabId, { type: 'DEACTIVATE_PICKER' });
+      } catch {
+        // Tab navigated or was closed — content script already gone, nothing to do
+        console.log('[SC Tool] Could not reach tab to deactivate picker (tab may have navigated)');
+      }
+      pickerTabId = null;
+    }
+    showStatus('🔴 Picker turned off', 'info');
+    return;
+  }
+
+  // ── ACTIVATE ──
   try {
-    // lastFocusedWindow is more reliable than currentWindow from a side panel
     const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     const tab  = tabs[0];
 
@@ -67,35 +91,42 @@ async function togglePicker() {
       throw new Error('Cannot run on browser system pages. Please navigate to a normal website.');
     }
 
-    // Try sending message — if content script isn't injected yet, inject it first
+    // Try sending — if content script isn't injected yet, inject it first
     try {
-      await chrome.tabs.sendMessage(tab.id, {
-        type: pickerActive ? 'ACTIVATE_PICKER' : 'DEACTIVATE_PICKER'
-      });
+      await chrome.tabs.sendMessage(tab.id, { type: 'ACTIVATE_PICKER' });
     } catch {
-      // Content script not loaded (page was open before extension install/reload)
-      // Inject it programmatically
       console.log('[SC Tool] Content script not found, injecting...');
       await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
-      // Small delay then retry
       await new Promise(r => setTimeout(r, 200));
-      await chrome.tabs.sendMessage(tab.id, {
-        type: pickerActive ? 'ACTIVATE_PICKER' : 'DEACTIVATE_PICKER'
-      });
+      await chrome.tabs.sendMessage(tab.id, { type: 'ACTIVATE_PICKER' });
     }
 
-    btn.textContent = pickerActive ? '🟢 Picker: ON' : '🔴 Picker: OFF';
-    btn.className   = pickerActive ? 'picker-btn on' : 'picker-btn off';
-    if (!pickerActive) { nameMappingMode = false; activeFieldId = null; resetMapBtns(); }
-    showStatus(pickerActive ? '⚡ Click any element on the page' : '🔴 Picker turned off', 'info');
+    pickerActive = true;
+    pickerTabId  = tab.id;   // remember which tab has the picker ON
+    btn.textContent = '🟢 Picker: ON';
+    btn.className   = 'picker-btn on';
+    showStatus('⚡ Click any element on the page', 'info');
 
   } catch (e) {
     console.error('[SC Tool] Picker error:', e);
     showStatus(`❌ ${e.message}`, 'err', 6000);
     pickerActive = false;
+    pickerTabId  = null;
     btn.textContent = '🔴 Picker: OFF';
     btn.className   = 'picker-btn off';
   }
+}
+
+// Called when content.js auto-deactivates picker after an element is selected
+function onPickerAutoOff() {
+  pickerActive = false;
+  pickerTabId  = null;
+  nameMappingMode = false;
+  activeFieldId   = null;
+  resetMapBtns();
+  const btn = document.getElementById('picker-btn');
+  btn.textContent = '🔴 Picker: OFF';
+  btn.className   = 'picker-btn off';
 }
 
 function resetMapBtns() {
