@@ -39,10 +39,6 @@ body {
   from { box-shadow: 0 0 4px rgba(46,125,50,.4); }
   to   { box-shadow: 0 0 14px rgba(46,125,50,.9); }
 }
-@keyframes pulse {
-  from { box-shadow: 0 0 4px rgba(232,160,32,.4); }
-  to   { box-shadow: 0 0 14px rgba(232,160,32,.9); }
-}
 
 /* ── Status bar ── */
 .status-bar {

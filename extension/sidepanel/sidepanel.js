@@ -8,21 +8,13 @@ let pickerActive  = false;
 let pickerTabId   = null;   // tab that has the picker active — used to deactivate reliably
 let nameMappingMode = false;
 let activeFieldId   = null;
-let apiUrl = '';
-let lastSelected = null;
+let lastSelected    = null;
 
 // ── Init ───────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', async () => {
-  // Load saved API URL
-  const result = await chrome.storage.sync.get(['apiUrl']);
-  if (result.apiUrl) {
-    apiUrl = result.apiUrl;
-    document.getElementById('api-url').value = apiUrl;
-  }
+document.addEventListener('DOMContentLoaded', () => {
 
   // ── Wire all event listeners (MV3 forbids inline onclick/onchange) ──
   document.getElementById('picker-btn')        .addEventListener('click',  togglePicker);
-  document.getElementById('save-config-btn')   .addEventListener('click',  saveConfig);
   document.getElementById('excel-input')       .addEventListener('change', e => importExcel(e.target));
   document.getElementById('export-btn')        .addEventListener('click',  exportExcel);
   document.getElementById('tpl-search')        .addEventListener('input',  e => filterTpl(e.target.value));
@@ -35,7 +27,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('close-selected-btn').addEventListener('click',  closeSelectedPanel);
 
   // Section collapse toggles
-  document.getElementById('hdr-config')    .addEventListener('click', () => toggleSection('config'));
   document.getElementById('hdr-templates') .addEventListener('click', () => toggleSection('templates'));
   document.getElementById('hdr-structure') .addEventListener('click', () => toggleSection('structure'));
   document.getElementById('hdr-item')      .addEventListener('click', () => toggleSection('item'));
@@ -47,26 +38,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 });
 
-// ── Config ─────────────────────────────────────────────────────────────────
-async function saveConfig() {
-  apiUrl = document.getElementById('api-url').value.trim().replace(/\/$/, '');
-  await chrome.storage.sync.set({ apiUrl });
-  showStatus('✅ Config saved!', 'ok');
-}
-
 // ── Picker toggle ──────────────────────────────────────────────────────────
 async function togglePicker() {
   const btn = document.getElementById('picker-btn');
 
   // ── DISABLE SELECTION ──
   if (pickerActive) {
-    pickerActive = false;
+    pickerActive    = false;
     nameMappingMode = false;
-    activeFieldId = null;
+    activeFieldId   = null;
     resetMapBtns();
     setPickerBtn(false);
 
-    // Send DEACTIVATE to the exact tab we activated
     if (pickerTabId !== null) {
       try {
         await chrome.tabs.sendMessage(pickerTabId, { type: 'DEACTIVATE_PICKER' });
@@ -109,7 +92,6 @@ async function activatePickerOnTab(tabId) {
   try {
     await chrome.tabs.sendMessage(tabId, { type: 'ACTIVATE_PICKER' });
   } catch {
-    // Content script not present — inject it then retry
     console.log('[SC Tool] Injecting content script into tab', tabId);
     await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
     await new Promise(r => setTimeout(r, 200));
@@ -117,7 +99,7 @@ async function activatePickerOnTab(tabId) {
   }
 }
 
-// Update the button appearance
+// Update the picker button appearance
 function setPickerBtn(on) {
   const btn = document.getElementById('picker-btn');
   if (on) {
@@ -129,12 +111,11 @@ function setPickerBtn(on) {
   }
 }
 
-// Called by background.js when a tab finishes loading.
-// If selection mode is ON and it's our picker tab, re-activate on the new page.
+// Re-activate picker when user navigates to a new page while selection mode is ON
 async function onTabLoaded(tabId) {
   if (!pickerActive || tabId !== pickerTabId) return;
   try {
-    await new Promise(r => setTimeout(r, 400)); // give page a moment to settle
+    await new Promise(r => setTimeout(r, 400));
     await activatePickerOnTab(tabId);
     showStatus('✅ Selection mode resumed on new page — click any element', 'info');
   } catch (e) {
@@ -152,10 +133,8 @@ function handleElementSelected(payload) {
   lastSelected = payload;
   const content = payload.text || payload.src || payload.alt || payload.href || '';
 
-  // Show sticky selected panel
   document.getElementById('selected-panel').style.display = 'block';
   document.getElementById('selected-tag').textContent = `<${payload.tag.toLowerCase()}>`;
-  // Fix 4: use .value (textarea) so user can edit captured text before mapping
   document.getElementById('selected-info').value = content || '(no text)';
 
   // Populate field dropdown
@@ -193,7 +172,6 @@ function handleElementSelected(payload) {
 function mapSelectedToField() {
   const fieldId = document.getElementById('map-field-sel').value;
   if (!fieldId) return;
-  // Fix 4: read from the editable textarea (user may have edited it)
   const content = document.getElementById('selected-info').value || '';
   mappings[fieldId] = content;
   renderFields();
@@ -214,45 +192,50 @@ function toggleNameMapping() {
   if (nameMappingMode && !pickerActive) togglePicker();
 }
 
-// ── Import Excel ────────────────────────────────────────────────────────────
-async function importExcel(input) {
-  // Always read URL from input field directly — don't rely on saved variable
-  const currentUrl = document.getElementById('api-url').value.trim().replace(/\/$/, '');
-  if (!currentUrl) {
-    showStatus('⚙️ Enter and Save the Vercel API URL first!', 'err', 8000);
-    return;
-  }
-  // Sync the variable too
-  apiUrl = currentUrl;
-
+// ── Import Excel (client-side via SheetJS) ──────────────────────────────────
+function importExcel(input) {
   const file = input.files[0];
   if (!file) return;
+  showStatus('⏳ Reading file…', 'info', 30000);
 
-  const fd = new FormData();
-  fd.append('file', file);
-  showStatus('⏳ Importing...', 'info', 30000);
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
 
-  try {
-    console.log('[SC Tool] Calling:', `${apiUrl}/api/import-excel`);
-    const r = await fetch(`${apiUrl}/api/import-excel`, { method: 'POST', body: fd });
-    console.log('[SC Tool] Response status:', r.status);
+      // ── TemplateFields sheet → templates ──
+      const tfSheet = wb.Sheets['TemplateFields'];
+      if (!tfSheet) throw new Error('"TemplateFields" sheet not found in the Excel file');
 
-    if (!r.ok) {
-      const text = await r.text();
-      throw new Error(`Server error ${r.status}: ${text.slice(0, 200)}`);
+      const tfRows = XLSX.utils.sheet_to_json(tfSheet, { header: 1 });
+      const parsed = [];
+      tfRows.slice(1).forEach(row => {
+        const tplName = String(row[0] || '').trim();
+        if (!tplName) return;
+        const fields = [];
+        for (let i = 1; i < row.length; i += 2) {
+          const fname = String(row[i]   || '').trim();
+          const ftype = String(row[i+1] || '').trim();
+          if (!fname) continue;
+          fields.push({ id: fname, type: ftype || 'Single-Line Text', currentValue: '' });
+        }
+        parsed.push({ name: tplName, fields });
+      });
+
+      if (!parsed.length) throw new Error('No templates found — check your TemplateFields sheet');
+
+      templates = parsed;
+      renderTemplates();
+      showStatus(`✅ ${templates.length} template${templates.length > 1 ? 's' : ''} loaded!`, 'ok', 5000);
+      console.log('[SC Tool] Templates loaded:', templates.length);
+
+    } catch (err) {
+      console.error('[SC Tool] Import error:', err);
+      showStatus(`❌ ${err.message}`, 'err', 10000);
     }
-
-    const data = await r.json();
-    if (data.error) throw new Error(data.error);
-
-    templates = data.templates || [];
-    renderTemplates();
-    showStatus(`✅ ${templates.length} templates loaded!`, 'ok', 5000);
-    console.log('[SC Tool] Templates loaded:', templates.length);
-  } catch (e) {
-    console.error('[SC Tool] Import error:', e);
-    showStatus(`❌ ${e.message}`, 'err', 10000);
-  }
+  };
+  reader.onerror = () => showStatus('❌ Could not read the file', 'err', 8000);
+  reader.readAsArrayBuffer(file);
   input.value = '';
 }
 
@@ -271,11 +254,12 @@ function renderTemplates(filter = '') {
     list.innerHTML = `<div class="empty-msg">${templates.length ? 'No match' : '📥 Import Excel to load templates'}</div>`;
     return;
   }
+
   filtered.forEach(t => {
     const div = document.createElement('div');
     div.className = 'tpl-item' + (currentTpl?.name === t.name ? ' active' : '');
     div.innerHTML = `<span class="tpl-name">${t.name}</span><span class="tpl-fields">${t.fields.length}f</span>`;
-    div.onclick = () => selectTemplate(t);
+    div.addEventListener('click', () => selectTemplate(t));
     list.appendChild(div);
   });
 }
@@ -304,9 +288,11 @@ function showItemSection(tpl) {
 function setIsPage(val) {
   document.getElementById('tog-yes').className = 'tog' + (val  ? ' yes-on' : '');
   document.getElementById('tog-no').className  = 'tog' + (!val ? ' no-on'  : '');
-  document.getElementById('ispage-hint').textContent = val ? '📄 Creates a page in Sitecore' : '🗂 Datasource — select which page it belongs to';
-  document.getElementById('ispage-hint').className   = 'hint ' + (val ? 'blue' : 'orange');
-  // Fix 1: Parent dropdown shows for Datasource (No), hidden for Page (Yes)
+  document.getElementById('ispage-hint').textContent = val
+    ? '📄 Creates a page in Sitecore'
+    : '🗂 Datasource — select which page it belongs to';
+  document.getElementById('ispage-hint').className = 'hint ' + (val ? 'blue' : 'orange');
+  // Parent dropdown shows for Datasource (No), hidden for Page (Yes)
   document.getElementById('parent-row').style.display = !val ? '' : 'none';
   if (!currentItem) currentItem = { isPage: val };
   else currentItem.isPage = val;
@@ -330,17 +316,16 @@ function updateFieldProgress() {
   const mapped = Object.values(mappings).filter(v => v).length;
   const total  = currentTpl.fields.length;
   const pct    = total ? Math.round(mapped / total * 100) : 0;
-  document.getElementById('field-count').textContent  = `${mapped} / ${total} fields`;
-  document.getElementById('field-pct').textContent    = pct + '%';
+  document.getElementById('field-count').textContent   = `${mapped} / ${total} fields`;
+  document.getElementById('field-pct').textContent     = pct + '%';
   document.getElementById('progress-fill').style.width = pct + '%';
-  // Update mapped highlight without recreating inputs
   document.querySelectorAll('#fields-list .field-row').forEach((row, i) => {
     const f = currentTpl.fields[i];
     if (f) row.className = 'field-row' + (mappings[f.id] ? ' mapped' : '');
   });
 }
 
-// ── Fields (full render — only called on template change, not on typing) ────
+// ── Fields (full render — only on template change, not on typing) ───────────
 function renderFields() {
   if (!currentTpl) return;
   const list = document.getElementById('fields-list');
@@ -363,17 +348,16 @@ function renderFields() {
     typeSpan.textContent = f.type;
 
     const inp = document.createElement('input');
-    inp.className = 'field-val';
-    inp.type = 'text';
-    inp.placeholder = 'value...';
-    inp.value = val;
-    // Fix 3: only update mapping + progress — do NOT call renderFields()
-    // (calling renderFields on input recreates all DOM elements = loses focus)
+    inp.className   = 'field-val';
+    inp.type        = 'text';
+    inp.placeholder = 'value…';
+    inp.value       = val;
+    // Only update mapping + progress — do NOT call renderFields() (would lose focus)
     inp.addEventListener('input', () => { mappings[f.id] = inp.value; updateFieldProgress(); });
 
     const btn = document.createElement('button');
     btn.className = 'field-map-btn' + (activeFieldId === f.id ? ' active' : '');
-    btn.title = 'Pick from page';
+    btn.title     = 'Pick from page';
     btn.textContent = '📌';
     btn.addEventListener('click', () => setActiveField(f.id, btn));
 
@@ -386,7 +370,11 @@ function renderFields() {
 }
 
 function setActiveField(fieldId, btn) {
-  if (activeFieldId === fieldId) { activeFieldId = null; btn.classList.remove('active'); return; }
+  if (activeFieldId === fieldId) {
+    activeFieldId = null;
+    btn.classList.remove('active');
+    return;
+  }
   document.querySelectorAll('.field-map-btn').forEach(b => b.classList.remove('active'));
   activeFieldId = fieldId;
   btn.classList.add('active');
@@ -397,13 +385,18 @@ function setActiveField(fieldId, btn) {
 // ── Structure ──────────────────────────────────────────────────────────────
 function addToStructure() {
   const name = document.getElementById('item-name').value.trim();
-  if (!name || !currentTpl) { showStatus('⚠️ Enter item name and select a template', 'err'); return; }
+  if (!name || !currentTpl) {
+    showStatus('⚠️ Enter item name and select a template', 'err');
+    return;
+  }
   const isPage   = document.getElementById('tog-yes').classList.contains('yes-on');
   const parentId = document.getElementById('parent-sel').value;
   const fields   = currentTpl.fields.map(f => ({ id: f.id, type: f.type, value: mappings[f.id] || '' }));
 
   if (currentItem && currentItem._idx !== undefined) {
-    structureList[currentItem._idx] = { ...structureList[currentItem._idx], name, template: currentTpl.name, isPage, parentId, fields };
+    structureList[currentItem._idx] = {
+      ...structureList[currentItem._idx], name, template: currentTpl.name, isPage, parentId, fields
+    };
     showStatus('✅ Item updated!', 'ok');
   } else {
     const safeId = `{NEW-${String(structureList.length + 1).padStart(2,'0')}-${name.replace(/\W+/g,'-').toUpperCase().slice(0,12)}}`;
@@ -412,7 +405,6 @@ function addToStructure() {
   }
 
   renderStructureTree();
-  // Reset form for next item
   document.getElementById('item-name').value = '';
   mappings    = {};
   currentItem = null;
@@ -428,7 +420,7 @@ function saveFields() {
 }
 
 function renderStructureTree() {
-  const tree = document.getElementById('struct-tree');
+  const tree  = document.getElementById('struct-tree');
   const badge = document.getElementById('struct-count');
 
   badge.textContent   = structureList.length;
@@ -452,14 +444,14 @@ function renderStructureTree() {
     actions.className = 'si-actions';
 
     const editBtn = document.createElement('button');
-    editBtn.className = 'si-btn';
-    editBtn.title = 'Edit';
+    editBtn.className   = 'si-btn';
+    editBtn.title       = 'Edit';
     editBtn.textContent = '✏️';
     editBtn.addEventListener('click', e => { e.stopPropagation(); editItem(i); });
 
     const delBtn = document.createElement('button');
-    delBtn.className = 'si-btn';
-    delBtn.title = 'Remove';
+    delBtn.className   = 'si-btn';
+    delBtn.title       = 'Remove';
     delBtn.textContent = '🗑️';
     delBtn.addEventListener('click', e => { e.stopPropagation(); removeItem(i); });
 
@@ -490,29 +482,67 @@ function editItem(i) {
 function removeItem(i) {
   if (!confirm(`Remove "${structureList[i].name}"?`)) return;
   structureList.splice(i, 1);
-  if (currentItem?._idx === i) { currentItem = null; }
+  if (currentItem?._idx === i) currentItem = null;
   renderStructureTree();
 }
 
-// ── Export Excel ────────────────────────────────────────────────────────────
-async function exportExcel() {
-  if (!apiUrl) { showStatus('⚙️ Set API URL first', 'err'); return; }
-  if (!structureList.length) { showStatus('⚠️ Add at least one item first', 'err'); return; }
-  showStatus('⏳ Exporting...', 'info');
+// ── Export Excel (client-side via SheetJS) ──────────────────────────────────
+function exportExcel() {
+  if (!structureList.length) {
+    showStatus('⚠️ Add at least one item to the structure first', 'err');
+    return;
+  }
+
   try {
-    const r = await fetch(`${apiUrl}/api/export-excel`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items: structureList })
+    const wb = XLSX.utils.book_new();
+
+    // ── Items sheet ──
+    const itemHeader = ['ID','ParentID','Name','Template','Path','IsPage','DatasourceIDs','SortOrder','Language','Version','WorkflowState','Publish'];
+    const itemRows   = [itemHeader];
+    structureList.forEach((item, i) => {
+      itemRows.push([
+        item.id       || `{ITEM-${i+1}-ID}`,
+        item.parentId || '',
+        item.name     || item.template,
+        item.template,
+        item.path     || '',
+        item.isPage   ? 'Yes' : 'No',
+        item.datasourceId || '',
+        (i + 1) * 100,
+        'en', 1, 'Draft', 'Yes'
+      ]);
     });
-    if (!r.ok) throw new Error(await r.text());
-    const blob = await r.blob();
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url; a.download = 'SitecoreContentExport.xlsx'; a.click();
-    URL.revokeObjectURL(url);
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(itemRows), 'Items');
+
+    // ── Fields sheet ──
+    const maxFields  = Math.max(...structureList.map(it => (it.fields || []).length), 1);
+    const fieldHeader = ['ItemID', 'Language', 'Version'];
+    for (let i = 0; i < maxFields; i++) fieldHeader.push('FieldName', 'FieldValue', 'FieldType');
+    const fieldRows = [fieldHeader];
+    structureList.forEach((item, i) => {
+      const row = [item.id || `{ITEM-${i+1}-ID}`, 'en', 1];
+      (item.fields || []).forEach(f => row.push(f.id, f.value || '', f.type));
+      while (row.length < 3 + maxFields * 3) row.push('', '', '');
+      fieldRows.push(row);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(fieldRows), 'Fields');
+
+    // ── Media + Links placeholder sheets ──
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ['MediaID','FileName','FilePath','DestinationFolder','Alt','Title','Language']
+    ]), 'Media');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ['ItemID','FieldName','LinkType','LinkText','Url','Target','Anchor','Class']
+    ]), 'Links');
+
+    // ── Trigger browser download ──
+    XLSX.writeFile(wb, 'SitecoreContentExport.xlsx');
     showStatus('✅ Exported successfully!', 'ok');
-  } catch (e) { showStatus(`❌ ${e.message}`, 'err'); }
+
+  } catch (err) {
+    console.error('[SC Tool] Export error:', err);
+    showStatus(`❌ Export failed: ${err.message}`, 'err');
+  }
 }
 
 // ── Section collapse ────────────────────────────────────────────────────────
@@ -520,25 +550,17 @@ function toggleSection(id) {
   const body  = document.getElementById(`${id}-body`);
   const arrow = document.getElementById(`${id}-arrow`);
   const open  = body.style.display !== 'none';
-  body.style.display  = open ? 'none' : '';
+  body.style.display = open ? 'none' : '';
   if (arrow) arrow.textContent = open ? '▶' : '▼';
 }
 
-// ── Status ──────────────────────────────────────────────────────────────────
-let _st;
+// ── Status bar ──────────────────────────────────────────────────────────────
+let _statusTimer;
 function showStatus(msg, type = 'info', duration = 3000) {
   const bar = document.getElementById('status-bar');
   bar.textContent   = msg;
   bar.className     = `status-bar ${type}`;
   bar.style.display = 'block';
-  clearTimeout(_st);
-  if (duration > 0) _st = setTimeout(() => { bar.style.display = 'none'; }, duration);
-}
-
-// ── Utils ───────────────────────────────────────────────────────────────────
-function esc(s) {
-  return String(s)
-    .replace(/&/g,'&amp;').replace(/"/g,'&quot;')
-    .replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/'/g,'&#39;');
+  clearTimeout(_statusTimer);
+  if (duration > 0) _statusTimer = setTimeout(() => { bar.style.display = 'none'; }, duration);
 }

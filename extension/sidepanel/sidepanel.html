@@ -17,21 +17,7 @@
 <!-- ── STATUS BAR ── -->
 <div id="status-bar" class="status-bar" style="display:none;"></div>
 
-<!-- ── BACKEND CONFIG ── -->
-<div class="section">
-  <div class="section-hdr" id="hdr-config">
-    <span>⚙️ Backend Config</span><span id="config-arrow">▼</span>
-  </div>
-  <div id="config-body" class="section-body">
-    <div class="form-row">
-      <label>Vercel API URL</label>
-      <input id="api-url" type="text" placeholder="https://your-backend.vercel.app" />
-    </div>
-    <button id="save-config-btn" class="btn-sm btn-primary">💾 Save</button>
-  </div>
-</div>
-
-<!-- ── IMPORT (Fix 2: Export moved to Page Structure) ── -->
+<!-- ── IMPORT / EXPORT ── -->
 <div class="action-bar">
   <label class="btn-sm btn-purple" style="cursor:pointer;">
     📥 Import Excel
@@ -53,7 +39,7 @@
   </div>
 </div>
 
-<!-- ── PAGE STRUCTURE (Fix 2: Export button lives here now) ── -->
+<!-- ── PAGE STRUCTURE ── -->
 <div class="section">
   <div class="section-hdr" id="hdr-structure">
     <span>▲ Page Structure <span id="struct-count" class="badge" style="display:none;"></span></span>
@@ -63,7 +49,6 @@
     <div id="struct-tree" class="struct-tree">
       <div class="empty-msg">Select a template above and add items here.</div>
     </div>
-    <!-- Fix 2: Export moved here -->
     <button id="export-btn" class="btn-green full-btn" style="margin-top:10px;">📤 Export All to Excel</button>
   </div>
 </div>
@@ -96,7 +81,7 @@
       <div id="ispage-hint" class="hint blue">📄 Creates a page in Sitecore</div>
     </div>
 
-    <!-- Fix 1: Parent page — now shows for Datasource (No), hidden for Page (Yes) -->
+    <!-- Parent page — shown for Datasource only -->
     <div class="form-row" id="parent-row" style="display:none;">
       <label>Parent Page</label>
       <select id="parent-sel"></select>
@@ -121,7 +106,6 @@
 <div id="selected-panel" class="selected-panel" style="display:none;">
   <div class="selected-hdr">🟠 Selected from page</div>
   <div id="selected-tag" class="selected-tag"></div>
-  <!-- Fix 4: textarea so user can edit the captured text before mapping -->
   <textarea id="selected-info" class="selected-info" rows="2" placeholder="Captured content..."></textarea>
   <div class="map-row">
     <select id="map-field-sel">
@@ -132,6 +116,7 @@
   </div>
 </div>
 
+<script src="xlsx.mini.min.js"></script>
 <script src="sidepanel.js"></script>
 </body>
 </html>
